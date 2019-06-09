@@ -1,0 +1,28 @@
+body {
+  margin: 0;
+}
+#game-canvas {
+  width: 100%;
+  height: 100%;
+}
+#webcam-canvas {
+  width: 400px;
+  height: 280px;
+  position: absolute;
+  right:0;
+  bottom: 0;
+}
+#message {
+  position: absolute;
+  top: calc(50% - 150px);
+  text-align: center;
+  width: 100%;
+  height: 300px;
+  font-weight: bold;
+  background-color: rgba(159, 232, 159, 0.8);
+  color: #FFF;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
