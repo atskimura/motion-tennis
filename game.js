@@ -15,10 +15,14 @@ class VSTennis {
     this.centerPosition;
     this.wallProps = {length:50, width:15, height:12, depth:1};
     this.racketProps = {x:0, y:0, z:this.wallProps.length/2 - 10, width:4, height:4, depth:0.4, color:0x0000ff, colorHit:0xff0000};
-    this.otherRacketProps = {x:0, y:0, z:-this.wallProps.length/2 + 10, width:4, height:4, depth:0.4, color:0x0000ff, colorHit:0xff0000};
+    this.otherRacketProps = {x:0, y:0, z:-this.wallProps.length/2 + 10, width:4, height:4, depth:0.4, color:0x66FF00, colorHit:0xff0000};
     this.dt = 1/60;
+    this.gameCanvasEl = document.getElementById('game-canvas');
     this.messageEl = document.getElementById('message');
     this.isGameStart = false;
+
+    this.cameraRemote;
+    this.rendererRemote;
 
     this.init();
   }
@@ -189,12 +193,27 @@ class VSTennis {
     const {width, length, height, depth} = this.wallProps;
 
     this.scene = new THREE.Scene();
+
     this.camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
+    this.camera.position.set(0, 0, length/2);
+    this.camera.lookAt(this.scene.position);
+
+    this.cameraRemote = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
+    this.cameraRemote.position.set(0, 0, -length/2);
+    this.cameraRemote.lookAt(this.scene.position);
 
     this.renderer = new THREE.WebGLRenderer();
     this.renderer.shadowMapEnabled = true;
     this.renderer.setSize( window.innerWidth, window.innerHeight );
-    document.getElementById('game-canvas').appendChild( this.renderer.domElement );
+    this.renderer.setClearColor(0xffffff);
+    this.gameCanvasEl.appendChild( this.renderer.domElement );
+
+    this.rendererRemote = new THREE.WebGLRenderer();
+    this.rendererRemote.shadowMapEnabled = true;
+    this.rendererRemote.setSize( window.innerWidth, window.innerHeight );
+    this.rendererRemote.setClearColor(0xffffff);
+    this.gameCanvasEl.appendChild( this.rendererRemote.domElement );
+    this.rendererRemote.domElement.style.display = 'none';
 
     this.createWalls();
 
@@ -207,11 +226,6 @@ class VSTennis {
     dirLight.position.set(0, 5, length/2 - 5);
     dirLight.lookAt(0, 0, 0);
     this.scene.add(dirLight);
-
-    this.renderer.setClearColor(0xffffff);
-
-    this.camera.position.set(0, 0, length/2);
-    this.camera.lookAt(this.scene.position);
 
     // this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
   }
@@ -232,81 +246,54 @@ class VSTennis {
   }
 
   moveRacket() {
-    const getRacektPosition = BREAKOUT_CONST.isHandtrack ? this.getRacektPositionHandtrack : this.getRacektPositionMotion;
-    getRacektPosition()
-    .then((position) => {
-      if (position) {
-        // ぶるぶる防止、0.5以下は無視する
-        if(Math.abs(position.x - this.racket.position.x) < 0.5) {
-          position.x = this.racket.position.x;
-        }
-        if(Math.abs(position.y - this.racket.position.y) < 0.5) {
-          position.y = this.racket.position.y;
-        }
-        // 壁を超えられないようにする
-        position.x = position.x < 0 ? Math.max(position.x, -8 + this.racketProps.width/2) : Math.min(position.x, 8 - this.racketProps.height/2);
-        position.y = position.y < 0 ? Math.max(position.y, -6 + this.racketProps.width/2) : Math.min(position.y, 6 - this.racketProps.height/2);
-        this.racket.position.set(position.x, position.y, this.racket.position.z);
-        // リモートにラケット座標を送る
-        if (webRtcStore.isOpen) {
-          webRtcStore.dataConnection.send(JSON.stringify({racket:this.racket.position}));
-        }
+    const position = this.getRacektPositionMotion();
+    if (position && this.racket) {
+      // ぶるぶる防止、0.5以下は無視する
+      if(Math.abs(position.x - this.racket.position.x) < 0.5) {
+        position.x = this.racket.position.x;
       }
-    }); 
+      if(Math.abs(position.y - this.racket.position.y) < 0.5) {
+        position.y = this.racket.position.y;
+      }
+      // 壁を超えられないようにする
+      position.x = position.x < 0 ? Math.max(position.x, -8 + this.racketProps.width/2) : Math.min(position.x, 8 - this.racketProps.height/2);
+      position.y = position.y < 0 ? Math.max(position.y, -6 + this.racketProps.width/2) : Math.min(position.y, 6 - this.racketProps.height/2);
+      this.racket.position.set(position.x, position.y, this.racket.position.z);
+      // リモートにラケット座標を送る
+      if (webRtcStore.isOpen) {
+        webRtcStore.dataConnection.send(JSON.stringify({racket:this.racket.position}));
+      }
+    } 
   }
 
   handleWebRtcData() {
     if (webRtcStore.data) {
       const data = JSON.parse(webRtcStore.data);
-      if (data.ball && !webRtcStore.isMaster) {
-        const position = data.ball;
-        this.ball.position.set(position.x, position.y, -position.z);
-      }
-      if (data.racket) {
-        const position = data.racket;
+      if (data.poses && webRtcStore.isMaster) {
+        const position = this.getRacektPositionMotionByPoses(data.poses, true);
         this.otherRacket.position.set(position.x, position.y, this.otherRacket.position.z);
       }
     }
   }
 
-  sendBallPosition() {
-    // 主催側だったらボールの座標を送る
-    if (webRtcStore.isOpen && webRtcStore.isMaster) {
-      webRtcStore.dataConnection.send(JSON.stringify({ball:this.ball.position}));
-    }
-  }
-
   getRacektPositionMotion() {
-    return new Promise((resolve) => {
-      if (poses && poses.length) {
-        const nose = poses[0].pose.nose;
-        if (nose.confidence > 0.5) {
-          // 壁の大きさに合わせて座標を変換
-          const canvasWidth = BREAKOUT_CONST.captureCanvasWidth;
-          const canvasHeight = BREAKOUT_CONST.captureCanvasHeight;
-          let position = {};
-          position.x = (nose.x - canvasWidth/2)/canvasWidth * -8 * 5;
-          position.y = (nose.y - canvasHeight/2)/canvasHeight * -6 * 8;
-          resolve(position);
-        }
-      }
-    });
+    return this.getRacektPositionMotionByPoses(poses);
   }
 
-  getRacektPositionHandtrack() {
-    return new Promise((resolve) => {
-      if (poses && poses.length && poses[0].score > 0.5) {
-        const bbox = poses[0].bbox;
-        const handX = bbox[0] + bbox[2]/2;
-        const handY = bbox[1] + bbox[3]/2;
+  getRacektPositionMotionByPoses(posesParam, isReverseX) {
+    if (posesParam && posesParam.length) {
+      const nose = posesParam[0].pose.nose;
+      if (nose.confidence > 0.5) {
+        // 壁の大きさに合わせて座標を変換
         const canvasWidth = BREAKOUT_CONST.captureCanvasWidth;
         const canvasHeight = BREAKOUT_CONST.captureCanvasHeight;
         let position = {};
-        position.x = (handX - canvasWidth/2)/canvasWidth * 8 * 3;
-        position.y = (handY - canvasHeight/2)/canvasHeight * -6 * 5;
-        resolve(position);
+        position.x = (nose.x - canvasWidth/2)/canvasWidth * -8 * 5 * (isReverseX ? -1 : 1);
+        position.y = (nose.y - canvasHeight/2)/canvasHeight * -6 * 8;
+        return position;
       }
-    });
+    }
+    return null;
   }
 
   animate() {
@@ -331,8 +318,6 @@ class VSTennis {
       this.otherRacketMesh.quaternion.copy(this.otherRacket.quaternion);
     }
 
-    this.sendBallPosition();
-
     this.moveRacket();
 
     this.handleWebRtcData();
@@ -340,7 +325,6 @@ class VSTennis {
     if (this.controls) this.controls.update();
 
     this.renderer.render(this.scene, this.camera);
+    this.rendererRemote.render(this.scene, this.cameraRemote);
   }
 }
-
-new VSTennis();

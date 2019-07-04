@@ -5,6 +5,10 @@ body {
   width: 100%;
   height: 100%;
 }
+#game-canvas video {
+  width: 100%;
+  height: 100%;
+}
 #webcam-canvas {
   width: 400px;
   height: 280px;
