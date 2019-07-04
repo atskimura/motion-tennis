@@ -60,7 +60,7 @@ const Peer = window.Peer;
       if (poses.length) {
         webRtcStore.dataConnection.send(JSON.stringify({poses:poses}));
       }
-    }, 100);
+    }, 50);
   });
 
   peer.once('open', id => (localId.textContent = id));
@@ -72,7 +72,7 @@ const Peer = window.Peer;
     dataConnection.once('open', async () => {
       console.log(`=== DataConnection has been opened ===\n`);
       webRtcStore.isOpen = true;
-      webRtcStore.isMaster = true;
+      webRtcStore.isHost = true;
     });
 
     dataConnection.on('data', data => {
